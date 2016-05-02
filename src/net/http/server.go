@@ -713,23 +713,25 @@ func (c *conn) readRequest() (w *response, err error) {
 	c.lastMethod = req.Method
 	c.r.setInfiniteReadLimit()
 
-	hosts, haveHost := req.Header["Host"]
-	if req.ProtoAtLeast(1, 1) && (!haveHost || len(hosts) == 0) {
-		return nil, badRequestError("missing required Host header")
-	}
-	if len(hosts) > 1 {
-		return nil, badRequestError("too many Host headers")
-	}
-	if len(hosts) == 1 && !validHostHeader(hosts[0]) {
-		return nil, badRequestError("malformed Host header")
-	}
-	for k, vv := range req.Header {
-		if !validHeaderName(k) {
-			return nil, badRequestError("invalid header name")
+	if !c.server.AcceptAnyHostHeader {
+		hosts, haveHost := req.Header["Host"]
+		if req.ProtoAtLeast(1, 1) && (!haveHost || len(hosts) == 0) {
+			return nil, badRequestError("missing required Host header")
 		}
-		for _, v := range vv {
-			if !validHeaderValue(v) {
-				return nil, badRequestError("invalid header value")
+		if len(hosts) > 1 {
+			return nil, badRequestError("too many Host headers")
+		}
+		if len(hosts) == 1 && !validHostHeader(hosts[0]) {
+			return nil, badRequestError("malformed Host header")
+		}
+		for k, vv := range req.Header {
+			if !validHeaderName(k) {
+				return nil, badRequestError("invalid header name")
+			}
+			for _, v := range vv {
+				if !validHeaderValue(v) {
+					return nil, badRequestError("invalid header value")
+				}
 			}
 		}
 	}
@@ -2006,6 +2008,10 @@ type Server struct {
 	// If nil, logging goes to os.Stderr via the log package's
 	// standard logger.
 	ErrorLog *log.Logger
+
+	// AcceptAnyHostHeader, if set to true, forces the server to skip validation
+	// of host headers.
+	AcceptAnyHostHeader bool
 
 	disableKeepAlives int32     // accessed atomically.
 	nextProtoOnce     sync.Once // guards initialization of TLSNextProto in Serve

@@ -122,6 +122,12 @@ type Transport struct {
 	// DefaultMaxIdleConnsPerHost is used.
 	MaxIdleConnsPerHost int
 
+	// MaxIdleTime, if non-zero, controls how long to hold on to keep-alive
+	// connections. Once a connection hits its MaxIdleTime, it will be closed.
+	// You need to call EnforceMaxIdleTime() at least once for this to be
+	// enforced on an ongoing basis.
+	MaxIdleTime time.Duration
+
 	// ResponseHeaderTimeout, if non-zero, specifies the amount of
 	// time to wait for a server's response headers after fully
 	// writing the request (including its body, if any). This
@@ -150,6 +156,8 @@ type Transport struct {
 	// h2transport (via onceSetNextProtoDefaults)
 	nextProtoOnce sync.Once
 	h2transport   *http2Transport // non-nil if http2 wired up
+
+	maintainIdleOnce sync.Once
 
 	// TODO: tunable on global max cached connections
 	// TODO: tunable on timeout on cached connections
@@ -415,6 +423,36 @@ func (t *Transport) CloseIdleConnections() {
 	}
 }
 
+// EnforceMaxIdleTime checks for idle connections that have exceeded the
+// MaxIdleTime and closes them.
+func (t *Transport) EnforceMaxIdleTime() {
+	if t.MaxIdleTime == 0 {
+		// Nothing to maintain
+		return
+	}
+	t.maintainIdleOnce.Do(func() {
+		go func() {
+			for {
+				time.Sleep(t.MaxIdleTime / 10)
+				now := time.Now()
+				t.idleMu.Lock()
+				for key, conns := range t.idleConn {
+					retainedConns := make([]*persistConn, 0, len(conns))
+					for _, pconn := range conns {
+						if now.Sub(pconn.lastIdled) > t.MaxIdleTime {
+							pconn.close(errCloseIdleConns)
+						} else {
+							retainedConns = append(retainedConns, pconn)
+						}
+					}
+					t.idleConn[key] = retainedConns
+				}
+				t.idleMu.Unlock()
+			}
+		}()
+	})
+}
+
 // CancelRequest cancels an in-flight request by closing its connection.
 // CancelRequest should only be called after RoundTrip has returned.
 //
@@ -568,6 +606,7 @@ func (t *Transport) tryPutIdleConn(pconn *persistConn) error {
 			log.Fatalf("dup idle pconn %p in freelist", pconn)
 		}
 	}
+	pconn.lastIdled = time.Now()
 	t.idleConn[key] = append(t.idleConn[key], pconn)
 	t.idleMu.Unlock()
 	return nil
@@ -1013,6 +1052,9 @@ type persistConn struct {
 	// headers on each outbound request before it's written. (the
 	// original Request given to RoundTrip is not modified)
 	mutateHeaderFunc func(Header)
+
+	// when this connection was last idled
+	lastIdled time.Time
 }
 
 // isBroken reports whether this connection is in a known broken state.

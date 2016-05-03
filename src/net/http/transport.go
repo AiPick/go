@@ -445,7 +445,11 @@ func (t *Transport) EnforceMaxIdleTime() {
 							retainedConns = append(retainedConns, pconn)
 						}
 					}
-					t.idleConn[key] = retainedConns
+					if len(retainedConns) == 0 {
+						delete(t.idleConn, key)
+					} else {
+						t.idleConn[key] = retainedConns
+					}
 				}
 				t.idleMu.Unlock()
 			}

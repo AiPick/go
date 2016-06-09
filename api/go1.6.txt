@@ -248,8 +248,11 @@ pkg net/http, const StatusTooManyRequests = 429
 pkg net/http, const StatusTooManyRequests ideal-int
 pkg net/http, const StatusUnavailableForLegalReasons = 451
 pkg net/http, const StatusUnavailableForLegalReasons ideal-int
+pkg net/http, type Server struct, AcceptAnyHostHeader bool
 pkg net/http, type Transport struct, ExpectContinueTimeout time.Duration
 pkg net/http, type Transport struct, TLSNextProto map[string]func(string, *tls.Conn) RoundTripper
+pkg net/http, type Transport struct, MaxIdleTime time.Duration
+pkg net/http, method (*Transport) EnforceMaxIdleTime()
 pkg net/http, var ErrSkipAltProtocol error
 pkg net/http/httptest, method (*ResponseRecorder) WriteString(string) (int, error)
 pkg net/http/httputil, type BufferPool interface { Get, Put }

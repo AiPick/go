@@ -435,19 +435,29 @@ func (t *Transport) EnforceMaxIdleTime() {
 			for {
 				time.Sleep(t.MaxIdleTime / 10)
 				now := time.Now()
+				toClose := make([]*persistConn, 0)
 				t.idleMu.Lock()
 				for key, conns := range t.idleConn {
 					retainedConns := make([]*persistConn, 0, len(conns))
 					for _, pconn := range conns {
 						if now.Sub(pconn.lastIdled) > t.MaxIdleTime {
-							pconn.close(errCloseIdleConns)
+							toClose = append(toClose, pconn)
 						} else {
 							retainedConns = append(retainedConns, pconn)
 						}
 					}
-					t.idleConn[key] = retainedConns
+					if len(retainedConns) == 0 {
+						delete(t.idleConn, key)
+					} else {
+						t.idleConn[key] = retainedConns
+					}
 				}
 				t.idleMu.Unlock()
+
+				// Close connections outside of mutex to minimize locking time
+				for _, pconn := range toClose {
+					pconn.close(errCloseIdleConns)
+				}
 			}
 		}()
 	})
